@@ -28,7 +28,9 @@ public class AuthController {
 
     @PostMapping("/register")
     public String register(@RequestBody RegisterRequest request) {
-
+        if(userService.findByEmail(request.getEmail())!=null){
+            return "User Already exists";
+        }
         User user = new User();
         user.setEmail(request.getEmail());
         user.setPassword(request.getPassword());
@@ -61,11 +63,12 @@ public class AuthController {
     public ApiKeyValidationResponse validateApiKey(@RequestParam String key) {
         try {
             ApiKey apiKey = apiKeyService.validateKey(key);
+            User user=apiKey.getUser();
 
-            return new ApiKeyValidationResponse(true, apiKey.getUser().getId());
+            return new ApiKeyValidationResponse(true, user.getId(),user.getPlan().name());
 
         } catch (Exception e) {
-            return new ApiKeyValidationResponse(false, null);
+            return new ApiKeyValidationResponse(false, null,null);
         }
     }
 }

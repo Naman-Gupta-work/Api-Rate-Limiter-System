@@ -48,7 +48,9 @@ public class ApiKeyFilter implements Filter {
             res.getWriter().write("Invalid API Key");
             return;
         }
-        if(!rateLimitService.isAllowed(apiKey)){
+        String plan = (String)result.get("plan");
+
+        if(!rateLimitService.isAllowed(apiKey,plan)){
             res.setStatus(429);
             res.getWriter().write("Too many requests");
             return;
