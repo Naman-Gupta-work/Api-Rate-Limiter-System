@@ -1,5 +1,6 @@
 package com.major.userservice.service;
 
+import com.major.userservice.model.Plan;
 import com.major.userservice.model.User;
 import com.major.userservice.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,7 +24,7 @@ public class UserService {
         }
         user.setPassword(passwordEncoder.encode(user.getPassword()));
         user.setRole("USER");
-
+        user.setPlan(Plan.FREE);
         return userRepository.save(user);
     }
 
