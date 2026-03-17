@@ -1,42 +1,32 @@
 package com.major.gateway.service;
 
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class RateLimitService {
 
-    private final Map<String, Integer> requestCounts = new HashMap<>();
-    private final Map<String, Long> timestamps = new HashMap<>();
+    private final StringRedisTemplate redisTemplate;
 
-    private final int LIMIT = 5; // requests per minute
-    private final long WINDOW = 60 * 1000; // 1 minute
+    private final int LIMIT = 5;
+    private final int WINDOW = 60; // seconds
+
+    public RateLimitService(StringRedisTemplate redisTemplate) {
+        this.redisTemplate = redisTemplate;
+    }
 
     public boolean isAllowed(String apiKey) {
 
-        long currentTime = System.currentTimeMillis();
+        String key = "rate_limit:" + apiKey;
 
-        timestamps.putIfAbsent(apiKey, currentTime);
-        requestCounts.putIfAbsent(apiKey, 0);
+        Long count = redisTemplate.opsForValue().increment(key);
 
-        long startTime = timestamps.get(apiKey);
-
-        // Reset window after 1 minute
-        if (currentTime - startTime > WINDOW) {
-            timestamps.put(apiKey, currentTime);
-            requestCounts.put(apiKey, 0);
+        if (count == 1) {
+            redisTemplate.expire(key, WINDOW, TimeUnit.SECONDS);
         }
 
-        int count = requestCounts.get(apiKey);
-
-        if (count >= LIMIT) {
-            return false;
-        }
-
-        requestCounts.put(apiKey, count + 1);
-
-        return true;
+        return count <= LIMIT;
     }
 }
