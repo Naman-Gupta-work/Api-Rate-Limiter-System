@@ -1,5 +1,8 @@
 package com.major.gateway.controller;
 
+import com.major.gateway.client.ApiEndpointClient;
+import com.major.gateway.client.UserClient;
+import com.major.gateway.dto.UserDto;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
@@ -14,9 +17,13 @@ import java.util.Collections;
 public class ProxyController {
 
     private final WebClient webClient;
+    private final ApiEndpointClient apiEndpointClient;
+    private final UserClient userClient;
 
-    public ProxyController(WebClient webClient) {
+    public ProxyController(WebClient webClient, ApiEndpointClient apiEndpointClient, UserClient userClient) {
         this.webClient = webClient;
+        this.apiEndpointClient = apiEndpointClient;
+        this.userClient = userClient;
     }
 
     @RequestMapping("/**")
@@ -24,18 +31,19 @@ public class ProxyController {
             HttpServletRequest request,
             @RequestBody(required = false) byte[] body
     ) {
-
-
+        String apiKey = request.getHeader("X-API-KEY");
+        UserDto user = userClient.getUserByApiKey(apiKey);
         String path = request.getRequestURI().replace("/proxy", "");
-
-
-        String targetUrl = "https://postman-echo.com" + path;
-
+        String targetUrl = apiEndpointClient.resolve(user.getId(), path);
         HttpMethod method = HttpMethod.valueOf(request.getMethod());
+        String query = request.getQueryString();
+        String finalUrl = (query == null || query.isEmpty())
+                ? targetUrl
+                : targetUrl + "?" + query;
 
         WebClient.RequestBodySpec spec = webClient
                 .method(method)
-                .uri(targetUrl);
+                .uri(finalUrl);
         spec.header("User-Agent", "Mozilla/5.0");
         for (String headerName : Collections.list(request.getHeaderNames())) {
             if (headerName.equalsIgnoreCase("host") ||

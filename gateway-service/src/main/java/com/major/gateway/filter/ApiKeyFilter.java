@@ -1,6 +1,6 @@
 package com.major.gateway.filter;
 
-import com.major.gateway.client.UserServiceClient;
+import com.major.gateway.client.UserClient;
 import com.major.gateway.service.RateLimitService;
 import jakarta.servlet.*;
 import jakarta.servlet.http.HttpServletRequest;
@@ -13,11 +13,11 @@ import java.util.Map;
 @Component
 public class ApiKeyFilter implements Filter {
 
-    private final UserServiceClient userServiceClient;
+    private final UserClient userServiceClient;
     private final RateLimitService  rateLimitService;
 
-    public ApiKeyFilter(UserServiceClient userServiceClient, RateLimitService rateLimitService) {
-        this.userServiceClient = userServiceClient;
+    public ApiKeyFilter(UserClient userClient, RateLimitService rateLimitService) {
+        this.userServiceClient = userClient;
         this.rateLimitService = rateLimitService;
     }
 

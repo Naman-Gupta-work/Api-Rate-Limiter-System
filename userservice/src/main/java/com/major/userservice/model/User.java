@@ -26,4 +26,7 @@ public class User {
     @Enumerated(EnumType.STRING)
     private Plan plan;
 
+    @Column(unique = true)
+    private String apiKey;
+
 }

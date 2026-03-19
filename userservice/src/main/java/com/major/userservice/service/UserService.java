@@ -1,11 +1,15 @@
 package com.major.userservice.service;
 
+import com.major.userservice.model.ApiKey;
 import com.major.userservice.model.Plan;
 import com.major.userservice.model.User;
+import com.major.userservice.repository.ApiKeyRepository;
 import com.major.userservice.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+
+import java.util.Optional;
 
 @Service
 public class UserService {
@@ -16,6 +20,8 @@ public class UserService {
     @Autowired
     UserRepository userRepository;
 
+    @Autowired
+    ApiKeyRepository apiKeyRepository;
 
 
     public User register(User user) {
@@ -33,4 +39,14 @@ public class UserService {
                 findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("User not found"));
     }
+
+    public User getByApiKey(String apiKey) {
+
+        ApiKey key = apiKeyRepository.findByApiKey(apiKey)
+                .orElseThrow(() -> new RuntimeException("Key not found"));
+
+        return key.getUser();
+    }
+
+
 }
