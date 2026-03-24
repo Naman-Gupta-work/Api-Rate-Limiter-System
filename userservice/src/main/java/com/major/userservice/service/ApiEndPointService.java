@@ -5,6 +5,8 @@ import com.major.userservice.model.ApiEndPoint;
 import com.major.userservice.repository.ApiEndPointRepository;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+
 @Service
 public class ApiEndPointService {
 
@@ -18,10 +20,30 @@ public class ApiEndPointService {
         return repo.findByUserIdAndPath(userId, path)
                 .orElseThrow(() -> new RuntimeException("API not found"));
     }
-    public ApiEndPoint save(ApiEndPoint apiEndPoint){
+    // Create
+    public ApiEndPoint create(ApiEndPoint apiEndPoint){
         if(repo.findByUserIdAndPath(apiEndPoint.getUser().getId(), apiEndPoint.getPath()).isPresent()){
             throw new ApiException("Path already in use");
         }
         return repo.save(apiEndPoint);
+    }
+    // Get all
+    public List<ApiEndPoint> getAll(Long userId){
+        return repo.findAllByUserId(userId);
+    }
+
+    // Update
+    public ApiEndPoint update(Long userId,ApiEndPoint apiEndPoint){
+        ApiEndPoint  api = repo.findById(userId).orElseThrow(() -> new ApiException("API not found"));
+
+        api.setPath(apiEndPoint.getPath());
+        api.setTargetUrl(apiEndPoint.getTargetUrl());
+
+        return repo.save(api);
+    }
+
+    //  Delete
+    public void delete(Long id) {
+        repo.deleteById(id);
     }
 }

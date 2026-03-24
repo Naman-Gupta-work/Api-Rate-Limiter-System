@@ -7,7 +7,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.Map;
 
-@FeignClient(name = "user-client", url = "http://localhost:8080")
+@FeignClient(name = "user-client", url = "http://localhost:8082")
 public interface UserClient {
 
     @GetMapping("/auth/apikey/validate")
