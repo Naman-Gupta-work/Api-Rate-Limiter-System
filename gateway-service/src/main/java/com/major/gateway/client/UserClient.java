@@ -1,18 +1,13 @@
 package com.major.gateway.client;
 
-import com.major.gateway.dto.UserDto;
+import com.major.gateway.dto.ApiKeyValidationResponse;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
-import java.util.Map;
-
-@FeignClient(name = "user-client", url = "http://localhost:8082")
+@FeignClient(name = "user-client", url = "http://localhost:8080")
 public interface UserClient {
-
-    @GetMapping("/auth/apikey/validate")
-    Map<String, Object> validateApiKey(@RequestParam String key);
-
-    @GetMapping("/users/by-api-key")
-    UserDto getUserByApiKey(@RequestParam String apiKey);
+    // We now map directly to the DTO instead of a messy Map<String, Object>
+    @GetMapping("/apikey/validate")
+    ApiKeyValidationResponse validateApiKey(@RequestParam("key") String key);
 }

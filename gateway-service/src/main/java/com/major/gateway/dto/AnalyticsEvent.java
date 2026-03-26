@@ -13,4 +13,7 @@ public class AnalyticsEvent {
     private String method;
     private int status;
     private long timestamp;
+    private long latencyMs;
+    private String clientIp;
+    private long responseSizeBytes;
 }

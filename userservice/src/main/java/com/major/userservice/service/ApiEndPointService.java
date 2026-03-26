@@ -18,7 +18,7 @@ public class ApiEndPointService {
 
     public ApiEndPoint getByUserAndPath(Long userId, String path) {
         return repo.findByUserIdAndPath(userId, path)
-                .orElseThrow(() -> new RuntimeException("API not found"));
+                .orElseThrow(() -> new ApiException("API not found"));
     }
     // Create
     public ApiEndPoint create(ApiEndPoint apiEndPoint){
@@ -33,17 +33,27 @@ public class ApiEndPointService {
     }
 
     // Update
-    public ApiEndPoint update(Long userId,ApiEndPoint apiEndPoint){
-        ApiEndPoint  api = repo.findById(userId).orElseThrow(() -> new ApiException("API not found"));
+    public ApiEndPoint update(Long endpointId,Long userId,ApiEndPoint updatedData){
+        ApiEndPoint api = repo.findById(endpointId)
+                .orElseThrow(() -> new ApiException("API not found"));
 
-        api.setPath(apiEndPoint.getPath());
-        api.setTargetUrl(apiEndPoint.getTargetUrl());
+        if (!api.getUser().getId().equals(userId)) {
+            throw new ApiException("Unauthorized: You do not own this API endpoint");
+        }
+        api.setPath(updatedData.getPath());
+        api.setTargetUrl(updatedData.getTargetUrl());
 
         return repo.save(api);
     }
 
     //  Delete
-    public void delete(Long id) {
-        repo.deleteById(id);
+    public void delete(Long endpointId,Long userId) {
+        ApiEndPoint api = repo.findById(endpointId)
+                .orElseThrow(() -> new ApiException("API not found"));
+
+        if (!api.getUser().getId().equals(userId)) {
+            throw new ApiException("Unauthorized: You do not own this API endpoint");
+        }
+        repo.delete(api);
     }
 }

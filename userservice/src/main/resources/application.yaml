@@ -1,13 +1,28 @@
 server:
   port:
-    8082
+    8080
 spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/userservice
     username: postgres
-    password: naman@456
-
+    password: your_password
   jpa:
     hibernate:
       ddl-auto: update
     show-sql: true
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: quirkypanda4@gmail.com
+    password: kpdw vjvv qmzb dwlz
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+cors:
+  allowed-origins: "http://localhost:5173"
+jwt:
+  secret: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970

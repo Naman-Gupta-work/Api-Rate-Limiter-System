@@ -9,3 +9,8 @@ spring:
       port: 6379
   kafka:
     bootstrap-servers: localhost:9092
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
