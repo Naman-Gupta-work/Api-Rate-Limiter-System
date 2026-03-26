@@ -4,14 +4,12 @@ import com.major.gateway.client.ApiEndpointClient;
 import com.major.gateway.dto.AnalyticsEvent;
 import com.major.gateway.dto.ApiResponse;
 import com.major.gateway.service.KafkaProducerService;
-import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.server.reactive.ServerHttpRequest; // <-- Correct Reactive Import!
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
-
-import java.util.Enumeration;
 
 @RestController
 @RequestMapping("/proxy")
@@ -29,44 +27,57 @@ public class ProxyController {
 
     @RequestMapping("/**")
     public Mono<ResponseEntity<byte[]>> forward(
-            HttpServletRequest request,
+            ServerHttpRequest request,
+            @RequestAttribute(value = "validatedUserId", required = false) Long userId, // <-- Magic extraction from the Filter!
             @RequestBody(required = false) byte[] body
     ) {
         long startTime = System.currentTimeMillis();
-        String clientIp = request.getRemoteAddr();
 
-        // 1. Get the User ID from the filter
-        Long userId = (Long) request.getAttribute("validatedUserId");
+        // 1. Reactive IP Extraction
+        final String clientIp = request.getRemoteAddress().getAddress().getHostAddress();
 
-        // 2. Resolve the Target URL
-        String path = request.getRequestURI().replace("/proxy", "");
 
+        // 2. Validate User Context
+        if (userId == null) {
+            return Mono.just(ResponseEntity.status(401).body("{\"message\": \"Unauthorized: Missing User Context\"}".getBytes()));
+        }
+
+        // 3. Reactive Path Extraction
+        String uri = request.getURI().getPath();
+        String prefixToStrip = "/proxy/" + userId;
+
+        String tempPath = "";
+        if (uri.startsWith(prefixToStrip)) {
+            tempPath = uri.substring(prefixToStrip.length());
+        }
+        final String path = tempPath.isEmpty() ? "/" : tempPath;
+
+        // 4. Resolve the Target URL
         String targetUrl;
         try {
             ApiResponse resolveResponse = apiEndpointClient.resolve(userId, path);
-            targetUrl = resolveResponse.getMessage(); // Extracting URL from our new JSON structure
+            targetUrl = resolveResponse.getMessage();
         } catch (Exception e) {
             return Mono.just(ResponseEntity.status(404).body("{\"message\": \"API Endpoint not found for this user\"}".getBytes()));
         }
 
-        // 3. Construct the Final Request
-        String query = request.getQueryString();
+        // 5. Construct Final URL (Reactive Query String)
+        String query = request.getURI().getQuery();
         String finalUrl = (query == null || query.isEmpty()) ? targetUrl : targetUrl + "?" + query;
 
-        HttpMethod method = HttpMethod.valueOf(request.getMethod());
+        // 6. Map HTTP Method and Headers
+        HttpMethod method = request.getMethod(); // In WebFlux, this already returns an HttpMethod object
         WebClient.RequestBodySpec spec = webClient.method(method).uri(finalUrl);
 
-        // Map Headers
-        Enumeration<String> headerNames = request.getHeaderNames();
-        while (headerNames.hasMoreElements()) {
-            String headerName = headerNames.nextElement();
+        // Reactive Header Loop (No more Enumeration!)
+        request.getHeaders().forEach((headerName, headerValues) -> {
             if (!isExcludedHeader(headerName)) {
-                spec.header(headerName, request.getHeader(headerName));
+                spec.header(headerName, headerValues.toArray(new String[0]));
             }
-        }
+        });
         spec.header("User-Agent", "API-Gateway");
 
-        // 4. Execute Proxy Call and Send Analytics
+        // 7. Execute Proxy Call and Send Analytics
         WebClient.ResponseSpec responseSpec = (body != null && body.length > 0)
                 ? spec.bodyValue(body).retrieve()
                 : spec.retrieve();

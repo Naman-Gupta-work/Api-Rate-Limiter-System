@@ -3,15 +3,21 @@ package com.major.gateway.filter;
 import com.major.gateway.client.UserClient;
 import com.major.gateway.dto.ApiKeyValidationResponse;
 import com.major.gateway.service.RateLimitService;
-import jakarta.servlet.*;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.server.reactive.ServerHttpRequest;
+import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ServerWebExchange;
+import org.springframework.web.server.WebFilter;
+import org.springframework.web.server.WebFilterChain;
+import reactor.core.publisher.Mono;
 
-import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 
 @Component
-public class ApiKeyFilter implements Filter {
+public class ApiKeyFilter implements WebFilter {
 
     private final UserClient userServiceClient;
     private final RateLimitService rateLimitService;
@@ -22,54 +28,67 @@ public class ApiKeyFilter implements Filter {
     }
 
     @Override
-    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
-            throws IOException, ServletException {
+    public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
+        ServerHttpRequest request = exchange.getRequest();
+        String uri = request.getURI().getPath();
 
-        HttpServletRequest req = (HttpServletRequest) request;
-        HttpServletResponse res = (HttpServletResponse) response;
-
-        // Skip filter for non-proxy routes (if you have any swagger docs etc.)
-        if (!req.getRequestURI().startsWith("/proxy")) {
-            chain.doFilter(request, response);
-            return;
+        // 1. Skip filter for non-proxy routes
+        if (!uri.startsWith("/proxy")) {
+            return chain.filter(exchange);
         }
 
-        String apiKey = req.getHeader("X-API-KEY");
-
+        // 2. Check for API Key
+        String apiKey = request.getHeaders().getFirst("X-API-KEY");
         if (apiKey == null) {
-            sendError(res, HttpServletResponse.SC_UNAUTHORIZED, "Missing API Key. Include 'X-API-KEY' header.");
-            return;
+            return sendError(exchange, HttpStatus.UNAUTHORIZED, "Missing API Key. Include 'X-API-KEY' header.");
         }
 
         try {
-            // Validate via User Service
+            // 3. Validate via User Service
             ApiKeyValidationResponse validation = userServiceClient.validateApiKey(apiKey);
 
             if (!validation.isValid()) {
-                sendError(res, HttpServletResponse.SC_UNAUTHORIZED, "Invalid API Key");
-                return;
+                return sendError(exchange, HttpStatus.UNAUTHORIZED, "Invalid API Key");
             }
 
-            // Check Rate Limit
+            // 4. Validate URL matches Token ID
+            String[] uriParts = uri.split("/");
+            if (uriParts.length >= 3) {
+                try {
+                    Long urlUserId = Long.parseLong(uriParts[2]);
+                    if (!urlUserId.equals(validation.getUserId())) {
+                        return sendError(exchange, HttpStatus.FORBIDDEN, "Access Denied: You do not own this routing namespace.");
+                    }
+                } catch (NumberFormatException e) {
+                    return sendError(exchange, HttpStatus.BAD_REQUEST, "Invalid User ID format in URL.");
+                }
+            } else {
+                return sendError(exchange, HttpStatus.BAD_REQUEST, "Malformed proxy URL.");
+            }
+
+            // 5. Check Rate Limit
             if (!rateLimitService.isAllowed(apiKey, validation.getPlan())) {
-                sendError(res, 429, "Rate limit exceeded for plan: " + validation.getPlan());
-                return;
+                return sendError(exchange, HttpStatus.TOO_MANY_REQUESTS, "Rate limit exceeded for plan: " + validation.getPlan());
             }
 
-            // HUGE PERFORMANCE FIX: Attach the userId to the request so the Controller doesn't have to fetch it again!
-            req.setAttribute("validatedUserId", validation.getUserId());
+            // 6. Attach userId to the Reactive Exchange context!
+            exchange.getAttributes().put("validatedUserId", validation.getUserId());
 
-            chain.doFilter(request, response);
+            return chain.filter(exchange);
 
         } catch (Exception e) {
-            sendError(res, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Gateway Auth Failure");
+            return sendError(exchange, HttpStatus.INTERNAL_SERVER_ERROR, "Gateway Auth Failure");
         }
     }
 
-    // Helper method to ensure the frontend/clients always get JSON
-    private void sendError(HttpServletResponse res, int status, String message) throws IOException {
-        res.setStatus(status);
-        res.setContentType("application/json");
-        res.getWriter().write("{\"message\": \"" + message + "\"}");
+    // Helper method to send JSON errors reactively
+    private Mono<Void> sendError(ServerWebExchange exchange, HttpStatus status, String message) {
+        ServerHttpResponse response = exchange.getResponse();
+        response.setStatusCode(status);
+        response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+
+        String json = "{\"message\": \"" + message + "\"}";
+        DataBuffer buffer = response.bufferFactory().wrap(json.getBytes(StandardCharsets.UTF_8));
+        return response.writeWith(Mono.just(buffer));
     }
 }
