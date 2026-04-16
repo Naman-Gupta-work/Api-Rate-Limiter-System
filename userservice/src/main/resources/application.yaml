@@ -1,6 +1,5 @@
 server:
-  port:
-    8080
+  port: 8080
 spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/userservice
@@ -23,6 +22,6 @@ spring:
             enable: true
 
 cors:
-  allowed-origins: "http://localhost:5173"
+  allowed-origins: "http://localhost:3000"
 jwt:
   secret: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970

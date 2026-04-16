@@ -2,93 +2,104 @@ package com.major.gateway.filter;
 
 import com.major.gateway.client.UserClient;
 import com.major.gateway.dto.ApiKeyValidationResponse;
+import com.major.gateway.service.AnalyticsService;
 import com.major.gateway.service.RateLimitService;
-import org.springframework.core.io.buffer.DataBuffer;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.http.server.reactive.ServerHttpRequest;
-import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
-import org.springframework.web.server.ServerWebExchange;
-import org.springframework.web.server.WebFilter;
-import org.springframework.web.server.WebFilterChain;
-import reactor.core.publisher.Mono;
+import org.springframework.web.filter.OncePerRequestFilter;
 
-import java.nio.charset.StandardCharsets;
+
+import java.io.IOException;
 
 @Component
-public class ApiKeyFilter implements WebFilter {
+public class ApiKeyFilter extends OncePerRequestFilter {
 
     private final UserClient userServiceClient;
     private final RateLimitService rateLimitService;
+    private final AnalyticsService analyticsService;
 
-    public ApiKeyFilter(UserClient userClient, RateLimitService rateLimitService) {
+    public ApiKeyFilter(UserClient userClient, RateLimitService rateLimitService, AnalyticsService analyticsService) {
         this.userServiceClient = userClient;
         this.rateLimitService = rateLimitService;
+        this.analyticsService = analyticsService;
     }
 
     @Override
-    public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
-        ServerHttpRequest request = exchange.getRequest();
-        String uri = request.getURI().getPath();
+    protected void doFilterInternal(HttpServletRequest request,
+                                    HttpServletResponse response,
+                                    FilterChain filterChain) throws ServletException, IOException {
 
-        // 1. Skip filter for non-proxy routes
+        String uri = request.getRequestURI();
+
+        // 1. Skip non-proxy routes
         if (!uri.startsWith("/proxy")) {
-            return chain.filter(exchange);
+            filterChain.doFilter(request, response);
+            return;
         }
 
-        // 2. Check for API Key
-        String apiKey = request.getHeaders().getFirst("X-API-KEY");
+        String[] parts = uri.split("/", 4);
+        String analyticsPath = parts.length >= 4 ? "/" + parts[3] : "/";
+        String apiKey = request.getHeader("X-API-KEY");
+
+        // 2. Missing Key check
         if (apiKey == null) {
-            return sendError(exchange, HttpStatus.UNAUTHORIZED, "Missing API Key. Include 'X-API-KEY' header.");
+            analyticsService.recordRequest(0L, analyticsPath, 401, 0);
+            sendError(response, HttpStatus.UNAUTHORIZED, "Missing API Key.");
+            return;
         }
 
         try {
-            // 3. Validate via User Service
+            // 3. BLOCKING CALL (This is now perfectly fine with Virtual Threads!)
             ApiKeyValidationResponse validation = userServiceClient.validateApiKey(apiKey);
 
             if (!validation.isValid()) {
-                return sendError(exchange, HttpStatus.UNAUTHORIZED, "Invalid API Key");
+                analyticsService.recordRequest(0L, analyticsPath, 401, 0);
+                sendError(response, HttpStatus.UNAUTHORIZED, "Invalid API Key");
+                return;
             }
 
-            // 4. Validate URL matches Token ID
-            String[] uriParts = uri.split("/");
-            if (uriParts.length >= 3) {
+            Long userId = validation.getUserId();
+
+            // 4. Namespace Validation
+            if (parts.length >= 3) {
                 try {
-                    Long urlUserId = Long.parseLong(uriParts[2]);
-                    if (!urlUserId.equals(validation.getUserId())) {
-                        return sendError(exchange, HttpStatus.FORBIDDEN, "Access Denied: You do not own this routing namespace.");
+                    Long urlUserId = Long.parseLong(parts[2]);
+                    if (!urlUserId.equals(userId)) {
+                        analyticsService.recordRequest(userId, analyticsPath, 403, 0);
+                        sendError(response, HttpStatus.FORBIDDEN, "Namespace Access Denied.");
+                        return;
                     }
                 } catch (NumberFormatException e) {
-                    return sendError(exchange, HttpStatus.BAD_REQUEST, "Invalid User ID format in URL.");
+                    analyticsService.recordRequest(userId, analyticsPath, 400, 0);
+                    sendError(response, HttpStatus.BAD_REQUEST, "Invalid User ID format.");
+                    return;
                 }
-            } else {
-                return sendError(exchange, HttpStatus.BAD_REQUEST, "Malformed proxy URL.");
             }
 
-            // 5. Check Rate Limit
+            // 5. Rate Limiting
             if (!rateLimitService.isAllowed(apiKey, validation.getPlan())) {
-                return sendError(exchange, HttpStatus.TOO_MANY_REQUESTS, "Rate limit exceeded for plan: " + validation.getPlan());
+                analyticsService.recordRequest(userId, analyticsPath, 429, 0);
+                sendError(response, HttpStatus.TOO_MANY_REQUESTS, "Rate limit exceeded.");
+                return;
             }
 
-            // 6. Attach userId to the Reactive Exchange context!
-            exchange.getAttributes().put("validatedUserId", validation.getUserId());
-
-            return chain.filter(exchange);
+            // SUCCESS: Attach ID to request and continue
+            request.setAttribute("validatedUserId", userId);
+            filterChain.doFilter(request, response);
 
         } catch (Exception e) {
-            return sendError(exchange, HttpStatus.INTERNAL_SERVER_ERROR, "Gateway Auth Failure");
+            analyticsService.recordRequest(0L, analyticsPath, 500, 0);
+            sendError(response, HttpStatus.INTERNAL_SERVER_ERROR, "Gateway Failure");
         }
     }
 
-    // Helper method to send JSON errors reactively
-    private Mono<Void> sendError(ServerWebExchange exchange, HttpStatus status, String message) {
-        ServerHttpResponse response = exchange.getResponse();
-        response.setStatusCode(status);
-        response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
-
-        String json = "{\"message\": \"" + message + "\"}";
-        DataBuffer buffer = response.bufferFactory().wrap(json.getBytes(StandardCharsets.UTF_8));
-        return response.writeWith(Mono.just(buffer));
+    private void sendError(HttpServletResponse response, HttpStatus status, String message) throws IOException {
+        response.setStatus(status.value());
+        response.setContentType("application/json");
+        response.getWriter().write("{\"message\": \"" + message + "\"}");
     }
 }

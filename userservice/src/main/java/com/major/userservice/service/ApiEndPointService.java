@@ -40,6 +40,14 @@ public class ApiEndPointService {
         if (!api.getUser().getId().equals(userId)) {
             throw new ApiException("Unauthorized: You do not own this API endpoint");
         }
+
+        // Enforce path uniqueness during edits
+        if (!api.getPath().equals(updatedData.getPath())) {
+            if (repo.findByUserIdAndPath(userId, updatedData.getPath()).isPresent()) {
+                throw new ApiException("Path already in use by another of your APIs");
+            }
+        }
+
         api.setPath(updatedData.getPath());
         api.setTargetUrl(updatedData.getTargetUrl());
 

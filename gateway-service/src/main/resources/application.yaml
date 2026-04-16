@@ -1,8 +1,9 @@
 server:
   port: 8081
 spring:
-  main:
-    web-application-type: reactive
+  threads:
+    virtual:
+      enabled: true
   data:
     redis:
       host: localhost
